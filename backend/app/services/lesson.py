@@ -64,17 +64,36 @@ class LessonService:
         if not concept:
             raise HTTPException(status_code=404, detail="Concept not found")
 
-        # 3. Generate Content Payload (Deterministically for now)
-        content_payload = generate_lesson_content(
-            concept_name=concept.name,
-            concept_desc=concept.description or "",
-            style=profile.learning_style
+        # 3. Fetch Mastery Level
+        from app.models.assessment import MasteryRecord
+        import json
+        
+        mastery_record = db.scalar(
+            select(MasteryRecord).where(
+                MasteryRecord.user_id == user_id,
+                MasteryRecord.concept_id == concept_id
+            )
         )
+        mastery_level = round(mastery_record.mastery_score * 100) if mastery_record else 0
+
+        # Serialize structured understanding profile
+        profile_json = json.dumps(profile.structured_understanding or {})
+
+        # Call LLM personalization engine (Prompt 2)
+        from app.services.llm import generate_personalized_lesson
+        content_payload = generate_personalized_lesson(
+            concept_name=concept.name,
+            concept_description=concept.description or "",
+            learner_profile_json=profile_json,
+            mastery_level=mastery_level
+        )
+        content_payload["title"] = f"Mastering {concept.name}"
 
         personalization_context = {
             "learning_style": profile.learning_style.value,
             "goal": profile.goal.value,
-            "target_level": profile.target_level.value
+            "target_level": profile.target_level.value,
+            "mastery_level": mastery_level
         }
 
         # 4. Create Lesson Record

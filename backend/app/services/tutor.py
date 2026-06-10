@@ -70,31 +70,49 @@ class TutorService:
         user_msg = TutorMessage(
             conversation_id=conversation.id,
             referenced_concept_id=req.referenced_concept_id or conversation.concept_id,
-            role=TutorMessageRole.USER,
+            role=TutorMessageRole.LEARNER,
             content=req.content,
             hint_level=0
         )
         db.add(user_msg)
 
-        # 2. Determine Hint Level
-        # Count previous user messages in this conversation to determine how frustrated they might be
-        user_message_count = sum(1 for m in conversation.messages if m.role == TutorMessageRole.USER)
-        # Assuming every 2 messages they need a higher hint
-        hint_level = min(user_message_count // 2, 3) 
+        # 2. Determine Attempt Count and Hint Level
+        learner_message_count = sum(1 for m in conversation.messages if m.role == TutorMessageRole.LEARNER)
+        attempt_count = learner_message_count + 1
+        hint_level = attempt_count
 
         # 3. Get Concept Name for Context
         concept_name = "this topic"
         if conversation.concept:
             concept_name = conversation.concept.name
 
-        # 4. Generate LLM Response (Stubbed)
-        assistant_content = generate_socratic_response_stub(req.content, hint_level, concept_name)
+        # 4. Fetch Learner Profile structured understanding
+        from app.models.curriculum import LearnerProfile
+        import json
+        profile = db.scalar(select(LearnerProfile).where(LearnerProfile.user_id == user_id))
+        profile_json = json.dumps(profile.structured_understanding or {}) if profile else "{}"
 
-        # 5. Add Assistant Message
+        # 5. Format Conversation History (including current message)
+        conversation_history = [
+            {"role": "learner" if m.role == TutorMessageRole.LEARNER else "tutor", "content": m.content}
+            for m in conversation.messages
+        ]
+        conversation_history.append({"role": "learner", "content": req.content})
+
+        # 6. Generate Socratic Tutor Response
+        from app.services.llm import generate_socratic_response
+        assistant_content = generate_socratic_response(
+            learner_profile_json=profile_json,
+            concept=concept_name,
+            conversation_history=conversation_history,
+            attempt_count=attempt_count
+        )
+
+        # 7. Add Tutor Message
         assistant_msg = TutorMessage(
             conversation_id=conversation.id,
             referenced_concept_id=req.referenced_concept_id or conversation.concept_id,
-            role=TutorMessageRole.ASSISTANT,
+            role=TutorMessageRole.TUTOR,
             content=assistant_content,
             hint_level=hint_level
         )

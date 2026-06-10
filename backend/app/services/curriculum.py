@@ -61,87 +61,101 @@ def generate_learning_path_for_user(db: Session, user_id: UUID) -> CurriculumPla
         for record in mastery_records
     }
 
-    thresholds = _resolve_mastery_thresholds(profile.target_level)
-    skip_threshold = thresholds["skip"]
-    review_threshold = thresholds["review"]
+    # Construct inputs for Prompt 4
+    concept_by_name = {c.name: c for c in concepts}
+    
+    kg_dict = {}
+    for c in concepts:
+        kg_dict[c.name] = {
+            "prerequisites": [],
+            "unlocks": []
+        }
+    for c in concepts:
+        for edge in c.prerequisites:
+            prereq_name = edge.prerequisite_concept.name
+            if prereq_name in kg_dict:
+                kg_dict[c.name]["prerequisites"].append(prereq_name)
+                kg_dict[prereq_name]["unlocks"].append(c.name)
+                
+    mastery_dict = {}
+    for c in concepts:
+        score = mastery_by_concept_id.get(c.id, 0.0)
+        mastery_dict[c.name] = score
+
+    # Call LLM curriculum engine (Prompt 4)
+    from app.services.llm import generate_curriculum_roadmap
+    import json
+    roadmap_data = generate_curriculum_roadmap(
+        goal=profile.goal.value if profile.goal else "Learn Python",
+        mastery_scores_json=json.dumps(mastery_dict),
+        knowledge_graph_json=json.dumps(kg_dict)
+    )
 
     skipped_concepts: list[CurriculumConceptSummary] = []
     actionable_concepts: list[CurriculumConceptSummary] = []
     path_blueprint: list[tuple[Concept, LearningPathItemType, str]] = []
 
-    for concept in concepts:
-        mastery_score = round(mastery_by_concept_id.get(concept.id, DEFAULT_MASTERY_SCORE), 4)
-        unmet_prerequisites = [
-            edge.prerequisite_concept.name
-            for edge in concept.prerequisites
-            if mastery_by_concept_id.get(edge.prerequisite_concept_id, DEFAULT_MASTERY_SCORE)
-            < review_threshold
-        ]
-
-        if mastery_score >= skip_threshold and not unmet_prerequisites:
-            skipped_concepts.append(
-                CurriculumConceptSummary(
-                    concept_id=concept.id,
-                    concept_slug=concept.slug,
-                    concept_name=concept.name,
-                    mastery_score=mastery_score,
-                    reason=f"Mastery {mastery_score:.2f} meets skip threshold {skip_threshold:.2f}.",
-                )
-            )
-            continue
-
-        if mastery_score >= review_threshold:
-            item_type = LearningPathItemType.REVIEW
-            reason = (
-                f"Mastery {mastery_score:.2f} is above review threshold {review_threshold:.2f} "
-                f"but below skip threshold {skip_threshold:.2f}."
-            )
-        else:
-            item_type = LearningPathItemType.LEARN
-            if mastery_score > 0:
-                reason = f"Mastery {mastery_score:.2f} is below review threshold {review_threshold:.2f}."
-            else:
-                reason = "No reliable mastery evidence exists for this concept yet."
-
-        if unmet_prerequisites:
-            reason = f"{reason} Weak prerequisites: {', '.join(unmet_prerequisites)}."
-
-        actionable_concepts.append(
-            CurriculumConceptSummary(
-                concept_id=concept.id,
-                concept_slug=concept.slug,
-                concept_name=concept.name,
+    # Map phases into the learning path
+    for phase in roadmap_data.get("phases", []):
+        phase_title = phase.get("title", "Logical Phase")
+        for c_entry in phase.get("concepts", []):
+            c_name = c_entry.get("name", "")
+            status = c_entry.get("status", "upcoming")
+            mastery_score = c_entry.get("mastery", 0) / 100.0
+            
+            # Find DB concept
+            db_concept = None
+            for name, c_obj in concept_by_name.items():
+                if name.lower().strip() == c_name.lower().strip():
+                    db_concept = c_obj
+                    break
+                    
+            if not db_concept:
+                continue
+                
+            reason = f"LLM assigned status '{status}' in phase '{phase_title}'. Estimated sessions: {c_entry.get('estimated_sessions', 1)}."
+            
+            summary = CurriculumConceptSummary(
+                concept_id=db_concept.id,
+                concept_slug=db_concept.slug,
+                concept_name=db_concept.name,
                 mastery_score=mastery_score,
-                reason=reason,
+                reason=reason
             )
-        )
-        path_blueprint.append((concept, item_type, reason))
+            
+            if status == "completed":
+                skipped_concepts.append(summary)
+            else:
+                actionable_concepts.append(summary)
+                # Determine type
+                item_type = LearningPathItemType.LEARN
+                if status == "in_progress" and mastery_score > 0.4:
+                    item_type = LearningPathItemType.REVIEW
+                path_blueprint.append((db_concept, item_type, reason))
 
-    if not path_blueprint:
-        concept = concepts[-1]
+    if not path_blueprint and concepts:
+        db_concept = concepts[-1]
         fallback_reason = "All core concepts are currently mastered. Added a review checkpoint to keep momentum."
-        actionable_concepts.append(
-            CurriculumConceptSummary(
-                concept_id=concept.id,
-                concept_slug=concept.slug,
-                concept_name=concept.name,
-                mastery_score=round(mastery_by_concept_id.get(concept.id, DEFAULT_MASTERY_SCORE), 4),
-                reason=fallback_reason,
-            )
+        summary = CurriculumConceptSummary(
+            concept_id=db_concept.id,
+            concept_slug=db_concept.slug,
+            concept_name=db_concept.name,
+            mastery_score=round(mastery_by_concept_id.get(db_concept.id, DEFAULT_MASTERY_SCORE), 4),
+            reason=fallback_reason
         )
-        path_blueprint.append((concept, LearningPathItemType.REVIEW, fallback_reason))
+        actionable_concepts.append(summary)
+        path_blueprint.append((db_concept, LearningPathItemType.REVIEW, fallback_reason))
 
+    # Persist and serialize
+    thresholds = _resolve_mastery_thresholds(profile.target_level)
     learning_path = _persist_learning_path(
         db=db,
         user_id=user_id,
         learner_profile_id=profile.id,
         domain_key=profile.domain_key,
         path_blueprint=path_blueprint,
-        rationale=_build_path_rationale(
-            actionable_count=len(actionable_concepts),
-            skipped_count=len(skipped_concepts),
-            thresholds=thresholds,
-        ),
+        rationale=roadmap_data.get("reasoning", "Generated roadmap using LLM curriculum planner."),
+        roadmap=roadmap_data
     )
 
     return CurriculumPlanResponse(
@@ -191,6 +205,7 @@ def _persist_learning_path(
     domain_key: str,
     path_blueprint: list[tuple[Concept, LearningPathItemType, str]],
     rationale: str,
+    roadmap: dict | None = None
 ) -> LearningPath:
     current_active_paths = db.scalars(
         select(LearningPath).where(
@@ -214,6 +229,7 @@ def _persist_learning_path(
         version=latest_version + 1,
         is_active=True,
         rationale=rationale,
+        roadmap=roadmap,
         started_at=datetime.now(UTC),
     )
     db.add(learning_path)
@@ -275,6 +291,7 @@ def _serialize_learning_path(path: LearningPath) -> LearningPathRead:
         version=path.version,
         is_active=path.is_active,
         rationale=path.rationale,
+        roadmap=path.roadmap,
         started_at=path.started_at,
         completed_at=path.completed_at,
         created_at=path.created_at,

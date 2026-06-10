@@ -35,6 +35,7 @@ class LearningPathRead(CortexSchema):
     version: int
     is_active: bool
     rationale: str | None
+    roadmap: dict | None = None
     started_at: datetime | None
     completed_at: datetime | None
     created_at: datetime
