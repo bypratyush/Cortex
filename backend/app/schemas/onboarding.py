@@ -29,6 +29,7 @@ class LearnerProfileRead(LearnerProfileBase):
     user_id: UUID
     created_at: datetime
     updated_at: datetime
+    structured_understanding: dict | None = Field(default=None)
 
 
 class LearnerOnboardingResponse(CortexSchema):

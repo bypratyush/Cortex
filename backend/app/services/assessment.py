@@ -200,6 +200,25 @@ def submit_assessment_for_user(
             )
         )
 
+    # Generate the assessment results summary for the LLM
+    results_list = []
+    for concept_id, evidence in concept_evidence.items():
+        for item in evidence:
+            results_list.append(f"- {item}")
+    assessment_results_str = "\n".join(results_list)
+
+    # Call LLM profile analysis service (Prompt 1)
+    from app.services.llm import analyze_learner_profile
+    structured_data = analyze_learner_profile(
+        goal=profile.goal.value if profile.goal else "",
+        motivation=profile.motivation.value if profile.motivation else "",
+        learning_style=profile.learning_style.value if profile.learning_style else "",
+        target_proficiency=profile.target_level.value if profile.target_level else "",
+        assessment_results=assessment_results_str
+    )
+
+    profile.structured_understanding = structured_data
+    db.add(profile)
     db.commit()
 
     total_questions = len(payload.answers)

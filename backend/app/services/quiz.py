@@ -19,25 +19,69 @@ class QuizService:
         if not concept:
             raise HTTPException(status_code=404, detail="Concept not found")
 
-        # Fetch questions from our seeded bank
-        # In a real app, we would random.sample or sort by appropriate difficulty.
-        stmt = select(AssessmentQuestion).where(
-            AssessmentQuestion.concept_id == req.concept_id,
-            AssessmentQuestion.is_active == True,
-            AssessmentQuestion.is_approved == True
-        ).limit(req.question_count)
-        
-        questions = db.scalars(stmt).all()
-        # Fallback if no approved questions
-        if not questions:
-            stmt = select(AssessmentQuestion).where(
-                AssessmentQuestion.concept_id == req.concept_id,
-                AssessmentQuestion.is_active == True
-            ).limit(req.question_count)
-            questions = db.scalars(stmt).all()
+        from app.models.curriculum import LearnerProfile
+        from app.models.enums import DifficultyLevel, QuestionType
+        from app.services.llm import generate_personalized_quiz
+        import uuid
+        import json
 
-        if not questions:
-            raise HTTPException(status_code=400, detail="No questions available for this concept")
+        # Fetch profile
+        profile = db.scalar(select(LearnerProfile).where(LearnerProfile.user_id == user_id))
+        if not profile:
+            raise HTTPException(status_code=404, detail="Learner profile not found")
+
+        # Fetch mastery score
+        mastery_record = db.scalar(
+            select(MasteryRecord).where(
+                MasteryRecord.user_id == user_id,
+                MasteryRecord.concept_id == req.concept_id
+            )
+        )
+        mastery_level = round(mastery_record.mastery_score * 100) if mastery_record else 0
+
+        # Generate personalized quiz questions using LLM (Prompt 3)
+        profile_json = json.dumps(profile.structured_understanding or {})
+        raw_questions = generate_personalized_quiz(
+            concept_name=concept.name,
+            concept_description=concept.description or "",
+            learner_profile_json=profile_json,
+            mastery_level=mastery_level
+        )
+
+        questions_with_uuid = []
+        q_reads = []
+        for rq in raw_questions:
+            q_uuid = str(uuid.uuid4())
+            rq_copy = dict(rq)
+            rq_copy["uuid"] = q_uuid
+            questions_with_uuid.append(rq_copy)
+
+            type_str = rq.get("type", "mcq")
+            if type_str == "mcq":
+                q_type = QuestionType.MCQ
+            elif type_str == "conceptual":
+                q_type = QuestionType.SHORT_ANSWER
+            else:
+                q_type = QuestionType.CODING_EXERCISE
+
+            choices = None
+            if q_type == QuestionType.MCQ:
+                options = rq.get("options", {})
+                choices = [options.get("A", ""), options.get("B", ""), options.get("C", ""), options.get("D", "")]
+
+            q_reads.append(
+                AssessmentQuestionRead(
+                    id=uuid.UUID(q_uuid),
+                    concept_id=concept.id,
+                    concept_slug=concept.slug,
+                    concept_name=concept.name,
+                    difficulty=DifficultyLevel.MEDIUM,
+                    question_type=q_type,
+                    prompt=rq.get("question", ""),
+                    choices=choices,
+                    starter_code=rq.get("sample_answer", "") if q_type == QuestionType.CODING_EXERCISE else None
+                )
+            )
 
         quiz = Quiz(
             user_id=user_id,
@@ -45,28 +89,16 @@ class QuizService:
             learning_path_item_id=req.learning_path_item_id,
             title=f"Quiz: {concept.name}",
             quiz_type=req.quiz_type,
-            question_count=len(questions),
-            configuration={"generated_question_ids": [str(q.id) for q in questions]}
+            question_count=len(questions_with_uuid),
+            configuration={
+                "dynamic_questions": questions_with_uuid,
+                "is_dynamic": True
+            }
         )
         
         db.add(quiz)
         db.commit()
         db.refresh(quiz)
-
-        q_reads = [
-            AssessmentQuestionRead(
-                id=q.id,
-                concept_id=q.concept_id,
-                concept_slug=concept.slug,
-                concept_name=concept.name,
-                difficulty=q.difficulty,
-                question_type=q.question_type,
-                prompt=q.prompt,
-                choices=q.choices,
-                starter_code=q.starter_code
-            )
-            for q in questions
-        ]
 
         return quiz, q_reads
 
@@ -76,16 +108,20 @@ class QuizService:
         if not quiz:
             raise HTTPException(status_code=404, detail="Quiz not found")
 
-        question_ids = quiz.configuration.get("generated_question_ids", [])
-        
-        # Load the expected answers
-        questions = db.scalars(
-            select(AssessmentQuestion).where(AssessmentQuestion.id.in_(question_ids))
-        ).all()
-        q_map = {str(q.id): q for q in questions}
+        is_dynamic = quiz.configuration.get("is_dynamic", False)
+        if is_dynamic:
+            dynamic_questions = quiz.configuration.get("dynamic_questions", [])
+            q_map = {q["uuid"]: q for q in dynamic_questions}
+            total = len(dynamic_questions)
+        else:
+            question_ids = quiz.configuration.get("generated_question_ids", [])
+            questions = db.scalars(
+                select(AssessmentQuestion).where(AssessmentQuestion.id.in_(question_ids))
+            ).all()
+            q_map = {str(q.id): q for q in questions}
+            total = len(question_ids)
 
         correct_count = 0
-        total = len(question_ids)
         feedback = []
         submitted_dict = {}
 
@@ -94,9 +130,26 @@ class QuizService:
             submitted_dict[qid] = ans.answer
             
             if qid in q_map:
-                expected = q_map[qid].expected_answer
-                # Very simple deterministic string match logic for MVP
-                is_correct = (str(expected).strip().lower() == str(ans.answer).strip().lower())
+                if is_dynamic:
+                    q = q_map[qid]
+                    q_type = q.get("type", "mcq")
+                    if q_type == "mcq":
+                        expected = q.get("correct", "A")
+                        opt_text = q.get("options", {}).get(expected, "")
+                        is_correct = (
+                            str(ans.answer).strip().upper() == expected.upper() or
+                            str(ans.answer).strip().lower() == opt_text.strip().lower()
+                        )
+                        explanation = q.get("explanation", "")
+                    else:
+                        expected = q.get("sample_answer", "")
+                        is_correct = len(str(ans.answer).strip()) > 0
+                        explanation = q.get("evaluation_hint", "")
+                else:
+                    expected = q_map[qid].expected_answer
+                    is_correct = (str(expected).strip().lower() == str(ans.answer).strip().lower())
+                    explanation = q_map[qid].explanation
+
                 if is_correct:
                     correct_count += 1
                 
@@ -104,7 +157,7 @@ class QuizService:
                     "question_id": qid,
                     "is_correct": is_correct,
                     "expected": expected,
-                    "explanation": q_map[qid].explanation
+                    "explanation": explanation
                 })
 
         accuracy = correct_count / total if total > 0 else 0.0

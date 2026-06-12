@@ -4,7 +4,7 @@ from datetime import datetime
 from typing import TYPE_CHECKING
 from uuid import UUID
 
-from sqlalchemy import Boolean, CheckConstraint, Enum, ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import Boolean, CheckConstraint, Enum, ForeignKey, Integer, JSON, String, Text, UniqueConstraint
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -50,6 +50,7 @@ class LearnerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         nullable=False,
     )
     current_level_summary: Mapped[str | None] = mapped_column(Text)
+    structured_understanding: Mapped[dict | None] = mapped_column(JSON, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="learner_profile")
     learning_paths: Mapped[list["LearningPath"]] = relationship(back_populates="learner_profile")
@@ -126,6 +127,7 @@ class LearningPath(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     rationale: Mapped[str | None] = mapped_column(Text)
+    roadmap: Mapped[dict | None] = mapped_column(JSON, nullable=True)
     started_at: Mapped[datetime | None]
     completed_at: Mapped[datetime | None]
 
