@@ -115,7 +115,7 @@ def harvest_questions():
                 .where(AssessmentQuestion.concept_id == concept.id, AssessmentQuestion.is_approved == True)
             ) or 0
             
-            if count < 10:
+            if count < 50:
                 logger.info(f"Concept '{concept.name}' has only {count} questions. Generating 5 more...")
                 generated = generate_questions_with_bedrock(concept.name, 5)
                 

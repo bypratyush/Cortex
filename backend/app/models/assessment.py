@@ -43,7 +43,7 @@ class AssessmentQuestion(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class AssessmentResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "assessment_results"
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     concept_id: Mapped[UUID] = mapped_column(ForeignKey("concepts.id"), nullable=False)
     question_id: Mapped[UUID | None] = mapped_column(ForeignKey("assessment_questions.id"))
     difficulty: Mapped[DifficultyLevel] = mapped_column(
@@ -59,7 +59,7 @@ class AssessmentResult(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     assessed_at: Mapped[datetime] = mapped_column(default=datetime.utcnow, nullable=False)
 
-    user: Mapped["User"] = relationship(back_populates="assessment_results")
+    user: Mapped["User"] = relationship(back_populates="assessment_results", passive_deletes=True)
     concept: Mapped["Concept"] = relationship(back_populates="assessment_results")
     question: Mapped["AssessmentQuestion | None"] = relationship(back_populates="assessment_results")
 
@@ -70,7 +70,7 @@ class MasteryRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
         UniqueConstraint("user_id", "concept_id", name="uq_mastery_records_user_concept"),
     )
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     concept_id: Mapped[UUID] = mapped_column(ForeignKey("concepts.id"), nullable=False)
     mastery_score: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
     quiz_accuracy: Mapped[float] = mapped_column(Float, default=0.0, nullable=False)
@@ -80,5 +80,5 @@ class MasteryRecord(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     evidence_summary: Mapped[str | None] = mapped_column(String(500))
     last_evaluated_at: Mapped[datetime | None]
 
-    user: Mapped["User"] = relationship(back_populates="mastery_records")
+    user: Mapped["User"] = relationship(back_populates="mastery_records", passive_deletes=True)
     concept: Mapped["Concept"] = relationship(back_populates="mastery_records")

@@ -30,7 +30,7 @@ if TYPE_CHECKING:
 class LearnerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "learner_profiles"
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), unique=True, nullable=False)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), unique=True, nullable=False)
     domain_key: Mapped[str] = mapped_column(String(100), default="python_programming", nullable=False)
     goal: Mapped[GoalType] = mapped_column(Enum(GoalType, name="goal_type"), nullable=False)
     target_level: Mapped[TargetLevel] = mapped_column(
@@ -51,7 +51,7 @@ class LearnerProfile(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     )
     current_level_summary: Mapped[str | None] = mapped_column(Text)
 
-    user: Mapped["User"] = relationship(back_populates="learner_profile")
+    user: Mapped["User"] = relationship(back_populates="learner_profile", passive_deletes=True)
     learning_paths: Mapped[list["LearningPath"]] = relationship(back_populates="learner_profile")
 
 
@@ -115,7 +115,7 @@ class ConceptPrerequisite(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class LearningPath(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "learning_paths"
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     learner_profile_id: Mapped[UUID | None] = mapped_column(ForeignKey("learner_profiles.id"))
     domain_key: Mapped[str] = mapped_column(String(100), default="python_programming", nullable=False)
     status: Mapped[LearningPathStatus] = mapped_column(
@@ -129,7 +129,7 @@ class LearningPath(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     started_at: Mapped[datetime | None]
     completed_at: Mapped[datetime | None]
 
-    user: Mapped["User"] = relationship(back_populates="learning_paths")
+    user: Mapped["User"] = relationship(back_populates="learning_paths", passive_deletes=True)
     learner_profile: Mapped["LearnerProfile | None"] = relationship(back_populates="learning_paths")
     items: Mapped[list["LearningPathItem"]] = relationship(
         back_populates="learning_path",

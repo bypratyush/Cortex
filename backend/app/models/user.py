@@ -27,15 +27,19 @@ class User(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     learner_profile: Mapped["LearnerProfile | None"] = relationship(
         back_populates="user",
         uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )
-    learning_paths: Mapped[list["LearningPath"]] = relationship(back_populates="user")
-    assessment_results: Mapped[list["AssessmentResult"]] = relationship(back_populates="user")
-    mastery_records: Mapped[list["MasteryRecord"]] = relationship(back_populates="user")
-    lessons: Mapped[list["Lesson"]] = relationship(back_populates="user")
-    quizzes: Mapped[list["Quiz"]] = relationship(back_populates="user")
-    quiz_attempts: Mapped[list["QuizAttempt"]] = relationship(back_populates="user")
-    tutor_conversations: Mapped[list["TutorConversation"]] = relationship(back_populates="user")
+    learning_paths: Mapped[list["LearningPath"]] = relationship(back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
+    assessment_results: Mapped[list["AssessmentResult"]] = relationship(back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
+    mastery_records: Mapped[list["MasteryRecord"]] = relationship(back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
+    lessons: Mapped[list["Lesson"]] = relationship(back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
+    quizzes: Mapped[list["Quiz"]] = relationship(back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
+    quiz_attempts: Mapped[list["QuizAttempt"]] = relationship(back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
+    tutor_conversations: Mapped[list["TutorConversation"]] = relationship(back_populates="user", cascade="all, delete-orphan", passive_deletes=True)
     analytics: Mapped["Analytics | None"] = relationship(
         back_populates="user",
         uselist=False,
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

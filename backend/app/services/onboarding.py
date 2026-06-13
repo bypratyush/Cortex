@@ -59,6 +59,22 @@ def create_user(db: Session, payload: UserCreate) -> User:
     db.refresh(user)
     return user
 
+def sync_user(db: Session, payload: UserCreate) -> User:
+    """Gets a user by auth_subject, or creates them if they don't exist.
+    Does NOT auto-assign a curriculum — the onboarding flow handles that explicitly."""
+    if not payload.auth_subject:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="auth_subject is required for syncing.",
+        )
+
+    user = db.scalar(select(User).where(User.auth_subject == payload.auth_subject))
+    if user:
+        return user
+
+    # New user — create record only, onboarding page handles profiling
+    return create_user(db, payload)
+
 
 def get_user_or_404(db: Session, user_id: UUID) -> User:
     user = db.get(User, user_id)

@@ -10,20 +10,24 @@ from app.models.tutoring import TutorConversation, TutorMessage
 from app.schemas.tutor import TutorConversationCreate, TutorMessageCreate
 
 
-def generate_socratic_response_stub(user_message: str, hint_level: int, concept_name: str) -> str:
-    """
-    Deterministic stub representing the LLM generation.
-    In the real implementation, this constructs a strict prompt telling the LLM
-    how much to reveal based on the `hint_level`.
-    """
-    if hint_level == 0:
-        return f"I see you're working on {concept_name}. Before I give you the answer, what do you think is the first step?"
-    elif hint_level == 1:
-        return f"You're on the right track with {concept_name}. Consider how loops might help here. What kind of loop would you use?"
-    elif hint_level == 2:
-        return f"Let's narrow it down. A `for` loop would be perfect here. Can you write a simple `for` loop?"
-    else:
-        return f"Okay, here is the answer for {concept_name}: You should use a `for` loop like this: `for item in items:`."
+def generate_socratic_response(messages_context: list[dict], hint_level: int, concept_name: str) -> str:
+    from app.services.llm import LLMService
+    from app.agents.tutor_prompts import get_tutor_system_prompt
+    
+    system_prompt = get_tutor_system_prompt(concept_name=concept_name, hint_level=hint_level)
+
+    try:
+        return LLMService.generate_text(system_prompt=system_prompt, messages=messages_context)
+    except Exception as e:
+        print("Falling back to tutor stub due to error:", e)
+        if hint_level == 0:
+            return f"I see you're working on {concept_name}. Before I give you the answer, what do you think is the first step?"
+        elif hint_level == 1:
+            return f"You're on the right track with {concept_name}. Consider how loops might help here. What kind of loop would you use?"
+        elif hint_level == 2:
+            return f"Let's narrow it down. A `for` loop would be perfect here. Can you write a simple `for` loop?"
+        else:
+            return f"Okay, here is the answer for {concept_name}: You should use a `for` loop like this: `for item in items:`."
 
 
 class TutorService:
@@ -70,7 +74,7 @@ class TutorService:
         user_msg = TutorMessage(
             conversation_id=conversation.id,
             referenced_concept_id=req.referenced_concept_id or conversation.concept_id,
-            role=TutorMessageRole.USER,
+            role=TutorMessageRole.LEARNER,
             content=req.content,
             hint_level=0
         )
@@ -78,7 +82,7 @@ class TutorService:
 
         # 2. Determine Hint Level
         # Count previous user messages in this conversation to determine how frustrated they might be
-        user_message_count = sum(1 for m in conversation.messages if m.role == TutorMessageRole.USER)
+        user_message_count = sum(1 for m in conversation.messages if m.role == TutorMessageRole.LEARNER)
         # Assuming every 2 messages they need a higher hint
         hint_level = min(user_message_count // 2, 3) 
 
@@ -87,14 +91,22 @@ class TutorService:
         if conversation.concept:
             concept_name = conversation.concept.name
 
-        # 4. Generate LLM Response (Stubbed)
-        assistant_content = generate_socratic_response_stub(req.content, hint_level, concept_name)
+        # Format history for Bedrock Converse API: [{"role": "user"|"assistant", "content": [{"text": "..."}]}]
+        messages_context = []
+        for m in conversation.messages:
+            bedrock_role = "user" if m.role == TutorMessageRole.LEARNER else "assistant"
+            messages_context.append({"role": bedrock_role, "content": [{"text": m.content}]})
+            
+        messages_context.append({"role": "user", "content": [{"text": req.content}]})
+
+        # 4. Generate LLM Response (Using AWS Bedrock)
+        assistant_content = generate_socratic_response(messages_context, hint_level, concept_name)
 
         # 5. Add Assistant Message
         assistant_msg = TutorMessage(
             conversation_id=conversation.id,
             referenced_concept_id=req.referenced_concept_id or conversation.concept_id,
-            role=TutorMessageRole.ASSISTANT,
+            role=TutorMessageRole.TUTOR,
             content=assistant_content,
             hint_level=hint_level
         )

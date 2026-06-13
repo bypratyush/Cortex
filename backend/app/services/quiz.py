@@ -5,7 +5,7 @@ from fastapi import HTTPException
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.assessment import AssessmentQuestion, MasteryRecord
+from app.models.assessment import AssessmentQuestion, AssessmentResult, MasteryRecord
 from app.models.content import Quiz, QuizAttempt
 from app.models.curriculum import Concept
 from app.schemas.assessment import AssessmentQuestionRead
@@ -19,15 +19,44 @@ class QuizService:
         if not concept:
             raise HTTPException(status_code=404, detail="Concept not found")
 
-        # Fetch questions from our seeded bank
-        # In a real app, we would random.sample or sort by appropriate difficulty.
+        import random
+        
+        # Fetch user's past results for this concept
+        past_results = db.scalars(
+            select(AssessmentResult)
+            .where(AssessmentResult.user_id == user_id, AssessmentResult.concept_id == req.concept_id)
+        ).all()
+        
+        seen_correct = {str(r.question_id) for r in past_results if r.is_correct}
+        seen_incorrect = {str(r.question_id) for r in past_results if not r.is_correct}
+
+        # Fetch all approved active questions for this concept
         stmt = select(AssessmentQuestion).where(
             AssessmentQuestion.concept_id == req.concept_id,
             AssessmentQuestion.is_active == True,
             AssessmentQuestion.is_approved == True
-        ).limit(req.question_count)
+        )
+        all_approved = db.scalars(stmt).all()
         
-        questions = db.scalars(stmt).all()
+        # Categorize questions
+        unseen = [q for q in all_approved if str(q.id) not in seen_correct and str(q.id) not in seen_incorrect]
+        missed = [q for q in all_approved if str(q.id) in seen_incorrect and str(q.id) not in seen_correct]
+        correct = [q for q in all_approved if str(q.id) in seen_correct]
+        
+        # Shuffle for variety
+        random.shuffle(unseen)
+        random.shuffle(missed)
+        random.shuffle(correct)
+        
+        questions = []
+        # Priority 1: Unseen questions
+        questions.extend(unseen[:req.question_count])
+        # Priority 2: Missed questions
+        if len(questions) < req.question_count:
+            questions.extend(missed[:req.question_count - len(questions)])
+        # Priority 3: Already correct questions (fallback)
+        if len(questions) < req.question_count:
+            questions.extend(correct[:req.question_count - len(questions)])
         # Fallback if no approved questions
         if not questions:
             stmt = select(AssessmentQuestion).where(
@@ -95,15 +124,52 @@ class QuizService:
             
             if qid in q_map:
                 expected = q_map[qid].expected_answer
-                # Very simple deterministic string match logic for MVP
-                is_correct = (str(expected).strip().lower() == str(ans.answer).strip().lower())
+                
+                if q_map[qid].question_type.value == "CODING_EXERCISE":
+                    # Grade via dynamic subprocess execution
+                    import subprocess
+                    import tempfile
+                    import os
+                    import sys
+                    
+                    test_code = f"{ans.answer}\n\n{expected}"
+                    with tempfile.NamedTemporaryFile(mode="w", suffix=".py", delete=False) as f:
+                        f.write(test_code)
+                        temp_path = f.name
+                    
+                    try:
+                        result = subprocess.run([sys.executable, temp_path], capture_output=True, text=True, timeout=3)
+                        is_correct = (result.returncode == 0)
+                    except subprocess.TimeoutExpired:
+                        is_correct = False
+                    finally:
+                        if os.path.exists(temp_path):
+                            os.remove(temp_path)
+                else:
+                    # Very simple deterministic string match logic for MVP
+                    is_correct = (str(expected).strip().lower() == str(ans.answer).strip().lower())
+                
                 if is_correct:
                     correct_count += 1
+                    
+                # Track the individual AssessmentResult
+                result = AssessmentResult(
+                    user_id=user_id,
+                    concept_id=quiz.concept_id,
+                    question_id=q_map[qid].id,
+                    difficulty=q_map[qid].difficulty,
+                    question_type=q_map[qid].question_type,
+                    learner_response={"answer": ans.answer},
+                    is_correct=is_correct,
+                    score=1.0 if is_correct else 0.0,
+                )
+                db.add(result)
                 
                 feedback.append({
                     "question_id": qid,
                     "is_correct": is_correct,
-                    "expected": expected,
+                    "expected_answer": expected,
+                    "learner_answer": ans.answer,
                     "explanation": q_map[qid].explanation
                 })
 

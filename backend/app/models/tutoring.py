@@ -19,7 +19,7 @@ if TYPE_CHECKING:
 class TutorConversation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "tutor_conversations"
 
-    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id"), nullable=False)
+    user_id: Mapped[UUID] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
     concept_id: Mapped[UUID | None] = mapped_column(ForeignKey("concepts.id"))
     learning_path_item_id: Mapped[UUID | None] = mapped_column(ForeignKey("learning_path_items.id"))
     status: Mapped[TutorConversationStatus] = mapped_column(
@@ -30,7 +30,7 @@ class TutorConversation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     summary: Mapped[str | None] = mapped_column(Text)
     last_message_at: Mapped[datetime | None]
 
-    user: Mapped["User"] = relationship(back_populates="tutor_conversations")
+    user: Mapped["User"] = relationship(back_populates="tutor_conversations", passive_deletes=True)
     concept: Mapped["Concept | None"] = relationship(back_populates="tutor_conversations")
     learning_path_item: Mapped["LearningPathItem | None"] = relationship(
         back_populates="tutor_conversations"

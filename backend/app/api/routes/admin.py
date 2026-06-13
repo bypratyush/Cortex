@@ -8,9 +8,32 @@ from app.api.deps import require_admin
 from app.db.session import get_db
 from app.models.assessment import AssessmentQuestion
 from app.models.curriculum import Concept
+from app.models.user import User
 from app.schemas.admin import AdminAssessmentQuestionRead, ConceptCreate, ConceptResponse, QuestionApprovalResponse
+from app.schemas.users import UserRead
 
 router = APIRouter(prefix="/admin", tags=["admin"], dependencies=[Depends(require_admin)])
+
+
+@router.get("/users", response_model=list[UserRead])
+def list_users(db: Session = Depends(get_db)):
+    """
+    List all registered users. Useful for finding user IDs during development.
+    """
+    return db.scalars(select(User).order_by(User.created_at.desc())).all()
+
+
+@router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_user(user_id: UUID, db: Session = Depends(get_db)):
+    """
+    Hard-delete a user and all their data (learning paths, mastery records,
+    lessons, quizzes, tutor conversations, analytics) via DB cascade.
+    """
+    user = db.get(User, user_id)
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="User not found.")
+    db.delete(user)
+    db.commit()
 
 
 @router.get("/questions/pending", response_model=list[AdminAssessmentQuestionRead])

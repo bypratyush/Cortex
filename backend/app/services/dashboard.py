@@ -1,7 +1,7 @@
 from uuid import UUID
 
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import select, func
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.assessment import MasteryRecord
@@ -22,7 +22,7 @@ class DashboardService:
 
         # 1. Fetch total concepts in domain
         total_concepts = db.scalar(
-            select(select(Concept).where(Concept.domain_key == domain_key).subquery().count())
+            select(func.count()).select_from(Concept).where(Concept.domain_key == domain_key)
         ) or 0
 
         # 2. Fetch Mastery Records

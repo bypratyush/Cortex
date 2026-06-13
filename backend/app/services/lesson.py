@@ -10,40 +10,42 @@ from app.models.curriculum import Concept, LearnerProfile, LearningPathItem
 from app.models.enums import LearningStyle, LessonStatus
 
 
-def generate_lesson_content(concept_name: str, concept_desc: str, style: LearningStyle) -> dict:
-    """
-    Deterministic stub for lesson generation.
-    In the future, this is where we call the LLM to generate the explanation/analogy.
-    """
-    base_explanation = f"Welcome to the lesson on {concept_name}. {concept_desc}"
-    
-    analogy = f"Think of {concept_name} like a tool in your toolbox."
-    if style == LearningStyle.VISUAL:
-        analogy = f"Imagine a blueprint. {concept_name} is the foundational structure."
-    elif style == LearningStyle.PRACTICE_BASED:
-        analogy = f"Like learning to ride a bike, {concept_name} requires hands-on repetition."
-        
-    examples = []
-    if style == LearningStyle.EXAMPLES_FIRST:
-        examples.append({"type": "code", "content": f"# Example of {concept_name}\nprint('Hello {concept_name}')"})
-    
-    return {
-        "title": f"Mastering {concept_name}",
-        "sections": [
-            {
-                "type": "explanation",
-                "content": base_explanation,
-            },
-            {
-                "type": "analogy",
-                "content": analogy,
-            },
-            {
-                "type": "examples",
-                "items": examples,
-            }
-        ]
-    }
+def generate_lesson_content(concept_name: str, concept_desc: str, style: LearningStyle, goal: str, target_level: str, background: str | None = None) -> dict:
+    from app.services.llm import LLMService
+    from app.agents.lesson_prompts import get_lesson_system_prompt, get_lesson_user_prompt
+
+    system_prompt = get_lesson_system_prompt()
+    user_prompt = get_lesson_user_prompt(
+        concept_name=concept_name,
+        concept_desc=concept_desc,
+        style=style.value,
+        goal=goal,
+        target_level=target_level,
+        background=background
+    )
+
+    try:
+        return LLMService.generate_json(system_prompt, user_prompt)
+    except Exception as e:
+        print("Falling back to deterministic stub due to error:", e)
+        # Fallback to stub
+        return {
+            "title": f"Mastering {concept_name}",
+            "sections": [
+                {
+                    "type": "explanation",
+                    "content": f"Welcome to the lesson on {concept_name}. {concept_desc}\n\n*Note: AI Generation failed, falling back to static content.*"
+                },
+                {
+                    "type": "analogy",
+                    "content": f"Think of {concept_name} like a tool in your toolbox."
+                },
+                {
+                    "type": "examples",
+                    "items": [{"type": "code", "content": f"# Example of {concept_name}\nprint('Hello {concept_name}')", "output": f"Hello {concept_name}"}]
+                }
+            ]
+        }
 
 
 class LessonService:
@@ -64,11 +66,14 @@ class LessonService:
         if not concept:
             raise HTTPException(status_code=404, detail="Concept not found")
 
-        # 3. Generate Content Payload (Deterministically for now)
+        # 3. Generate Content Payload (Using LLM)
         content_payload = generate_lesson_content(
             concept_name=concept.name,
             concept_desc=concept.description or "",
-            style=profile.learning_style
+            style=profile.learning_style,
+            goal=profile.goal.value,
+            target_level=profile.target_level.value,
+            background=profile.current_level_summary
         )
 
         personalization_context = {
@@ -82,7 +87,7 @@ class LessonService:
             user_id=user_id,
             concept_id=concept_id,
             learning_path_item_id=learning_path_item_id,
-            title=content_payload["title"],
+            title=concept.name,
             status=LessonStatus.DRAFT,
             content_payload=content_payload,
             personalization_context=personalization_context

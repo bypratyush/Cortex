@@ -36,6 +36,19 @@ def get_conversation(
     return TutorService.get_conversation(db, current_user.id, conversation_id)
 
 
+@router.get("/conversations/{conversation_id}/messages", response_model=list[TutorMessageRead])
+def get_messages(
+    conversation_id: UUID,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user),
+):
+    """
+    Retrieve all messages for a specific conversation.
+    """
+    conv = TutorService.get_conversation(db, current_user.id, conversation_id)
+    return conv.messages
+
+
 @router.post("/conversations/{conversation_id}/messages", response_model=list[TutorMessageRead])
 def send_message(
     conversation_id: UUID,
