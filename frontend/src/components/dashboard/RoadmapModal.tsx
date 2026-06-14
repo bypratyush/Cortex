@@ -21,10 +21,14 @@ interface RoadmapModalProps {
   onClose: () => void;
 }
 
-const TYPE_CFG = {
-  lesson: { label: "Lesson", color: "#6366f1", shadow: "rgba(99,102,241,0.35)", Icon: Code2 },
-  quiz:   { label: "Quiz",   color: "#8b5cf6", shadow: "rgba(139,92,246,0.35)", Icon: Zap },
-  module: { label: "Module", color: "#06b6d4", shadow: "rgba(6,182,212,0.35)",  Icon: BookOpen },
+const TYPE_CFG: Record<string, { label: string; color: string; shadow: string; Icon: any }> = {
+  lesson:     { label: "Lesson", color: "#6366f1", shadow: "rgba(99,102,241,0.35)", Icon: Code2 },
+  quiz:       { label: "Quiz",   color: "#8b5cf6", shadow: "rgba(139,92,246,0.35)", Icon: Zap },
+  module:     { label: "Module", color: "#06b6d4", shadow: "rgba(6,182,212,0.35)",  Icon: BookOpen },
+  learn:      { label: "Learn",  color: "#6366f1", shadow: "rgba(99,102,241,0.35)", Icon: Code2 },
+  review:     { label: "Review", color: "#f59e0b", shadow: "rgba(245,158,11,0.35)", Icon: BookOpen },
+  practice:   { label: "Practice", color: "#10b981", shadow: "rgba(16,185,129,0.35)", Icon: Code2 },
+  assessment: { label: "Quiz",   color: "#8b5cf6", shadow: "rgba(139,92,246,0.35)", Icon: Zap },
 };
 
 function RoadmapNode({ item, idx, isLast, onClick }: {
