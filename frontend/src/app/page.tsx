@@ -2,7 +2,7 @@
 
 import { motion } from "framer-motion";
 import { ArrowRight, Asterisk } from "lucide-react";
-import { SignUpButton, Show, UserButton } from "@clerk/nextjs";
+import { SignUpButton, SignInButton, Show, UserButton } from "@clerk/nextjs";
 
 export default function Home() {
 
@@ -38,7 +38,9 @@ export default function Home() {
               <a href="#" className="hover:text-white transition-colors">SOCRATIC AI</a>
               <a href="#" className="hover:text-white transition-colors">METHODOLOGY</a>
               <a href="#" className="hover:text-white transition-colors">PRICING</a>
-              <a href="#" className="hover:text-white transition-colors">LOGIN</a>
+              <SignInButton mode="modal">
+                <button className="hover:text-white transition-colors uppercase cursor-pointer">LOGIN</button>
+              </SignInButton>
             </div>
           </nav>
 
