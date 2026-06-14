@@ -44,7 +44,7 @@ class TutorConversation(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 class TutorMessage(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "tutor_messages"
 
-    conversation_id: Mapped[UUID] = mapped_column(ForeignKey("tutor_conversations.id"), nullable=False)
+    conversation_id: Mapped[UUID] = mapped_column(ForeignKey("tutor_conversations.id", ondelete="CASCADE"), nullable=False)
     referenced_concept_id: Mapped[UUID | None] = mapped_column(ForeignKey("concepts.id"))
     role: Mapped[TutorMessageRole] = mapped_column(
         Enum(TutorMessageRole, name="tutor_message_role"),
