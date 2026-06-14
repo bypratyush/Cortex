@@ -180,7 +180,7 @@ export default function RoadmapModal({ items, onClose }: RoadmapModalProps) {
 
   // Scroll to active node on mount
   useEffect(() => {
-    const activeIdx = items.findIndex(i => i.status === "active");
+    const activeIdx = items.findIndex(i => i.status === "in_progress");
     if (activeIdx > 0 && scrollRef.current) {
       setTimeout(() => {
         scrollRef.current?.scrollTo({ left: activeIdx * 236, behavior: "smooth" });
